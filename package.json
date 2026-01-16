@@ -1,0 +1,32 @@
+{
+  "name": "heavy-imports-fix",
+  "version": "0.1.0",
+
+  "type": "module",
+
+  "bin": {
+    "heavy-imports-fix": "bin/cli.cjs"
+  },
+
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsup src/cli.ts --format cjs --out-dir bin --clean"
+  },
+
+  "dependencies": {
+    "@babel/generator": "^7.28.6",
+    "@babel/parser": "^7.28.6",
+    "@babel/traverse": "^7.28.6",
+    "@babel/types": "^7.28.6"
+  },
+
+  "devDependencies": {
+    "@types/babel__generator": "^7.27.0",
+    "@types/babel__parser": "^7.0.0",
+    "@types/babel__traverse": "^7.28.0",
+    "@types/node": "^25.0.9",
+    "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
