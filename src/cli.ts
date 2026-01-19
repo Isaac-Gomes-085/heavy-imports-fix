@@ -6,14 +6,14 @@ function printHelp() {
 🔥 heavy-imports-fix
 
 Uso:
-  npx heavy-imports-fix [opções]
+  heavy-imports-fix [opções]
 
 Opções:
   --src <dir>        Diretório base (default: ./src)
   --dry-run          Não escreve arquivos
   --report-only      Apenas relatório
   --verbose          Logs detalhados
-  --help             Ajuda
+  --help | -h        Ajuda
 `);
 }
 

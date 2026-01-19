@@ -2,6 +2,8 @@ import { scanFiles } from "./scanner";
 import { analyzeFile } from "./analyzer";
 import { transformFile } from "./transformer";
 import { report } from "./reporter";
+import path from "path";
+import fs from "fs"
 
 export type Options = {
   srcDir: string;
@@ -12,7 +14,7 @@ export type Options = {
 
 function parseArgs(args: string[]): Options {
   return {
-    srcDir: getArgValue(args, "--app", "./app"),
+    srcDir: getArgValue(args, "--src", "./src"),
     dryRun: args.includes("--dry-run"),
     reportOnly: args.includes("--report-only"),
     verbose: args.includes("--verbose"),

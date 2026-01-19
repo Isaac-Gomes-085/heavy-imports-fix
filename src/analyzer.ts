@@ -44,7 +44,7 @@ export function analyzeFile(file: string): AnalysisResult {
     ImportDeclaration(path: any) {
       const source = path.node.source.value;
 
-      // AGORA SÓ ANALISA SE ESTIVER NA heavyLibs
+      // SÓ ANALISA SE ESTIVER NA heavyLibs
       if (!isHeavyLib(source)) return;
 
       const specifiers: HeavyImport["specifiers"] = [];
