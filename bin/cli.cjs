@@ -68,21 +68,10 @@ function scanFiles(dir) {
 }
 
 // src/analyzer.ts
-var import_fs3 = __toESM(require("fs"), 1);
-var import_parser = require("@babel/parser");
-var import_traverse = __toESM(require("@babel/traverse"), 1);
-var t = __toESM(require("@babel/types"), 1);
+var import_ts_morph = require("ts-morph");
 
 // src/rules/heavyLibs.ts
-var FORBIDDEN_NAMED_EXPORTS = [
-  "Tooltip",
-  "Legend",
-  "ResponsiveContainer",
-  "Cell",
-  "CartesianGrid",
-  "XAxis",
-  "YAxis"
-];
+var FORBIDDEN_NAMED_EXPORTS = [];
 var heavyLibs = [
   "recharts",
   "react-chartjs-2",
@@ -110,7 +99,6 @@ var heavyLibs = [
   "moment",
   "moment-timezone",
   "luxon",
-  "date-fns-tz",
   "formik",
   "redux-form",
   "draft-js",
@@ -132,9 +120,9 @@ var heavyLibs = [
   "react-map-gl",
   "@heroicons/react",
   "react-icons",
-  "lodash",
-  "lodash-es",
-  "rxjs",
+  // "lodash",
+  // "lodash-es",
+  // "rxjs",
   "pdfjs-dist",
   "react-pdf",
   "video.js",
@@ -142,9 +130,20 @@ var heavyLibs = [
   "three",
   "@react-three/fiber"
 ];
+var UTILITY_LIBS = [
+  "moment",
+  "moment-timezone",
+  "lodash",
+  "lodash-es",
+  "rxjs",
+  "luxon",
+  "axios"
+  // "date-fns",
+  // "date-fns-tz"
+];
 
 // src/analyzer.ts
-var traverse = import_traverse.default.default ?? import_traverse.default;
+var project = new import_ts_morph.Project();
 function isHeavyLib(source) {
   return heavyLibs.some((lib) => {
     if (lib.endsWith("*")) {
@@ -154,40 +153,40 @@ function isHeavyLib(source) {
   });
 }
 function analyzeFile(file) {
-  const code = import_fs3.default.readFileSync(file, "utf8");
-  const ast = (0, import_parser.parse)(code, {
-    sourceType: "module",
-    plugins: ["typescript", "jsx"]
-  });
+  const sourceFile = project.addSourceFileAtPath(file);
   const heavyImports = [];
-  traverse(ast, {
-    ImportDeclaration(path3) {
-      const source = path3.node.source.value;
-      if (!isHeavyLib(source)) return;
-      const specifiers = [];
-      for (const spec of path3.node.specifiers) {
-        if (t.isImportDefaultSpecifier(spec)) {
-          specifiers.push({
-            local: spec.local.name,
-            type: "default"
-          });
-        }
-        if (t.isImportSpecifier(spec)) {
-          specifiers.push({
-            local: spec.local.name,
-            imported: t.isIdentifier(spec.imported) ? spec.imported.name : spec.imported.value,
-            type: "named"
-          });
-        }
-      }
-      if (specifiers.length) {
-        heavyImports.push({
-          source,
-          specifiers
-        });
-      }
+  const importDeclarations = sourceFile.getImportDeclarations();
+  for (const importDecl of importDeclarations) {
+    const source = importDecl.getModuleSpecifierValue();
+    if (!isHeavyLib(source)) continue;
+    const isUtility = UTILITY_LIBS.some(
+      (lib) => source === lib || source.startsWith(`${lib}/`)
+    );
+    const specifiers = [];
+    const defaultImport = importDecl.getDefaultImport();
+    if (defaultImport) {
+      specifiers.push({
+        local: defaultImport.getText(),
+        type: "default"
+      });
     }
-  });
+    const namedImports = importDecl.getNamedImports();
+    for (const namedImport of namedImports) {
+      specifiers.push({
+        local: namedImport.getAliasNode()?.getText() || namedImport.getName(),
+        imported: namedImport.getName(),
+        type: "named"
+      });
+    }
+    if (specifiers.length) {
+      heavyImports.push({
+        source,
+        isUtility,
+        specifiers
+      });
+    }
+  }
+  project.removeSourceFile(sourceFile);
   return {
     file,
     heavyImports
@@ -195,103 +194,103 @@ function analyzeFile(file) {
 }
 
 // src/transformer.ts
-var import_fs4 = __toESM(require("fs"), 1);
-var import_parser2 = require("@babel/parser");
-var import_traverse2 = __toESM(require("@babel/traverse"), 1);
-var import_generator = __toESM(require("@babel/generator"), 1);
-var t2 = __toESM(require("@babel/types"), 1);
-var traverse2 = import_traverse2.default.default ?? import_traverse2.default;
-var generate = import_generator.default.default ?? import_generator.default;
-function transformCode(code, heavyImports) {
-  const ast = (0, import_parser2.parse)(code, {
-    sourceType: "module",
-    plugins: ["typescript", "jsx"]
-  });
+var import_fs3 = __toESM(require("fs"), 1);
+var import_ts_morph2 = require("ts-morph");
+
+// src/rules/substitutions.ts
+var LIB_SUBSTITUTIONS = {
+  "moment": {
+    replaceWith: "dayjs",
+    isUtility: true
+  }
+};
+
+// src/transformer.ts
+var project2 = new import_ts_morph2.Project();
+var applyTransformations = (sourceFile, heavyImports) => {
   const grouped = /* @__PURE__ */ new Map();
+  const utilityVars = /* @__PURE__ */ new Map();
   for (const imp of heavyImports) {
-    grouped.set(imp.source, imp.specifiers);
+    const existing = grouped.get(imp.source) || [];
+    grouped.set(imp.source, [...existing, ...imp.specifiers]);
+    const isUtil = UTILITY_LIBS.some((lib) => imp.source === lib || imp.source.startsWith(`${lib}/`));
+    if (isUtil) {
+      imp.specifiers.forEach((s) => {
+        const finalSource = LIB_SUBSTITUTIONS[imp.source]?.replaceWith || imp.source;
+        utilityVars.set(s.local, { source: finalSource, isDefault: s.type === "default" });
+      });
+    }
   }
-  traverse2(ast, {
-    ImportDeclaration(path3) {
-      if (grouped.has(path3.node.source.value)) {
-        path3.remove();
+  sourceFile.getImportDeclarations().forEach((importDecl) => {
+    const source = importDecl.getModuleSpecifierValue();
+    const shouldRemove = grouped.has(source) || LIB_SUBSTITUTIONS[source] && LIB_SUBSTITUTIONS[source].isUtility;
+    if (shouldRemove) {
+      importDecl.remove();
+    }
+  });
+  sourceFile.forEachDescendant((node) => {
+    if (import_ts_morph2.Node.isCallExpression(node)) {
+      const callExpression = node;
+      const identifier = callExpression.getExpression();
+      if (import_ts_morph2.Node.isIdentifier(identifier) && utilityVars.has(identifier.getText())) {
+        const info = utilityVars.get(identifier.getText());
+        let parentNode = callExpression.getParent();
+        while (parentNode) {
+          if (import_ts_morph2.Node.isFunctionDeclaration(parentNode) || import_ts_morph2.Node.isArrowFunction(parentNode) || import_ts_morph2.Node.isMethodDeclaration(parentNode) || import_ts_morph2.Node.isFunctionExpression(parentNode)) {
+            parentNode.setIsAsync(true);
+            break;
+          }
+          parentNode = parentNode.getParent();
+        }
+        const replacementText = `(await import('${info.source}')).${info.isDefault ? "default" : identifier.getText()}`;
+        const argsText = callExpression.getArguments().map((arg) => arg.getText()).join(", ");
+        callExpression.replaceWithText(`${replacementText}(${argsText})`);
       }
     }
   });
-  const body = ast.program.body;
-  if (!body.some(
-    (n) => t2.isImportDeclaration(n) && n.source.value === "next/dynamic"
-  )) {
-    body.unshift(
-      t2.importDeclaration(
-        [t2.importDefaultSpecifier(t2.identifier("dynamic"))],
-        t2.stringLiteral("next/dynamic")
-      )
-    );
+  const hasComponents = Array.from(grouped.keys()).some((src) => !UTILITY_LIBS.includes(src));
+  if (hasComponents && !sourceFile.getImportDeclaration("next/dynamic")) {
+    const useClientDirective = sourceFile.getStatementsWithComments().find((s) => s.getText().includes("use client"));
+    const importIndex = useClientDirective ? 1 : 0;
+    sourceFile.insertImportDeclaration(importIndex, {
+      defaultImport: "dynamic",
+      moduleSpecifier: "next/dynamic"
+    });
   }
-  let lastImportIndex = -1;
-  for (let i = 0; i < body.length; i++) {
-    if (t2.isImportDeclaration(body[i])) {
-      lastImportIndex = i;
-    }
-  }
-  let insertIndex = lastImportIndex + 1;
+  const lastImportIndex = sourceFile.getImportDeclarations().length;
+  let currentInsertIndex = lastImportIndex;
   for (const [src, specs] of grouped) {
+    if (UTILITY_LIBS.includes(src)) continue;
     for (const s of specs) {
-      if (s.type === "named" && FORBIDDEN_NAMED_EXPORTS.includes(s.local)) {
-        continue;
-      }
-      const declaration = t2.variableDeclaration("const", [
-        t2.variableDeclarator(
-          t2.identifier(s.local),
-          t2.callExpression(t2.identifier("dynamic"), [
-            t2.arrowFunctionExpression(
-              [],
-              s.type === "default" ? t2.callExpression(t2.import(), [
-                t2.stringLiteral(src)
-              ]) : t2.callExpression(
-                t2.memberExpression(
-                  t2.callExpression(t2.import(), [
-                    t2.stringLiteral(src)
-                  ]),
-                  t2.identifier("then")
-                ),
-                [
-                  t2.arrowFunctionExpression(
-                    [t2.identifier("m")],
-                    t2.memberExpression(
-                      t2.identifier("m"),
-                      t2.identifier(s.imported)
-                    )
-                  )
-                ]
-              )
-            ),
-            t2.objectExpression([
-              t2.objectProperty(
-                t2.identifier("ssr"),
-                t2.booleanLiteral(false)
-              )
-            ])
-          ])
-        )
-      ]);
-      body.splice(insertIndex, 0, declaration);
-      insertIndex++;
+      if (s.type === "named" && FORBIDDEN_NAMED_EXPORTS.includes(s.local)) continue;
+      const importExpression = s.type === "default" ? `import('${src}')` : `import('${src}').then(m => m.${s.imported})`;
+      const originalType = s.type === "default" ? `typeof import('${src}').default` : `typeof import('${src}').${s.imported}`;
+      const dynamicCallText = `dynamic(() => ${importExpression}, { ssr: false }) as unknown as ${originalType}`;
+      sourceFile.insertVariableStatement(currentInsertIndex, {
+        declarationKind: import_ts_morph2.VariableDeclarationKind.Const,
+        declarations: [{
+          name: s.local,
+          initializer: dynamicCallText
+        }],
+        leadingTrivia: (writer) => currentInsertIndex === lastImportIndex ? writer.blankLine() : writer.write("")
+      });
+      currentInsertIndex++;
     }
   }
-  return generate(ast, { retainLines: true }).code;
-}
+};
 function transformFile(result, options) {
-  const code = import_fs4.default.readFileSync(result.file, "utf8");
-  const out = transformCode(code, result.heavyImports);
+  const sourceFile = project2.addSourceFileAtPath(result.file);
+  applyTransformations(sourceFile, result.heavyImports);
+  const out = sourceFile.getFullText();
   if (options.dryRun) {
     console.log(`\u{1F9EA} DRY-RUN: ${result.file}`);
+    project2.removeSourceFile(sourceFile);
     return;
   }
-  import_fs4.default.writeFileSync(result.file, out, "utf8");
+  import_fs3.default.writeFileSync(result.file, out, "utf8");
+  project2.removeSourceFile(sourceFile);
   if (options.verbose) {
-    console.log(`\u270F\uFE0F ${result.file}`);
+    console.log(`\u270F\uFE0F  ${result.file}`);
   }
 }
 
@@ -313,9 +312,11 @@ function report(results) {
 }
 
 // src/index.ts
+var import_path3 = __toESM(require("path"), 1);
+var import_fs4 = __toESM(require("fs"), 1);
 function parseArgs(args2) {
   return {
-    srcDir: getArgValue(args2, "--app", "./app"),
+    srcDir: getArgValue(args2, "--src", "./src"),
     dryRun: args2.includes("--dry-run"),
     reportOnly: args2.includes("--report-only"),
     verbose: args2.includes("--verbose")
@@ -340,6 +341,20 @@ function run(args2) {
       transformFile(result, options);
     }
   }
+  if (!options.dryRun) {
+    try {
+      const pkgJsonPath = import_path3.default.join(process.cwd(), "package.json");
+      if (import_fs4.default.existsSync(pkgJsonPath)) {
+        const pkg = import_fs4.default.readFileSync(pkgJsonPath, "utf8");
+        if (pkg.includes('"moment"') && !pkg.includes('"dayjs"')) {
+          console.warn("\n[OTIMIZA\xC7\xC3O]: Detectamos a substitui\xE7\xE3o de 'moment' por 'dayjs'.");
+          console.warn("Por favor, execute: npm install dayjs");
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
   console.log("\n\u2714 Finalizado");
 }
 
@@ -349,14 +364,14 @@ function printHelp() {
 \u{1F525} heavy-imports-fix
 
 Uso:
-  npx heavy-imports-fix [op\xE7\xF5es]
+  heavy-imports-fix [op\xE7\xF5es]
 
 Op\xE7\xF5es:
   --src <dir>        Diret\xF3rio base (default: ./src)
   --dry-run          N\xE3o escreve arquivos
   --report-only      Apenas relat\xF3rio
   --verbose          Logs detalhados
-  --help             Ajuda
+  --help | -h        Ajuda
 `);
 }
 var args = process.argv.slice(2);

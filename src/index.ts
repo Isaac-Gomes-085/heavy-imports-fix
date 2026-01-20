@@ -46,5 +46,23 @@ export function run(args: string[]) {
     }
   }
 
+  if (!options.dryRun) { // Só avisa se realmente alterou os arquivos
+    try {
+      const pkgJsonPath = path.join(process.cwd(), 'package.json');
+      if (fs.existsSync(pkgJsonPath)) {
+        const pkg = fs.readFileSync(pkgJsonPath, 'utf8');
+        
+        // Verifica se moment foi removido mas dayjs não foi instalado
+        if (pkg.includes('"moment"') && !pkg.includes('"dayjs"')) {
+          console.warn("\n[OTIMIZAÇÃO]: Detectamos a substituição de 'moment' por 'dayjs'.");
+          console.warn("Por favor, execute: npm install dayjs");
+        }
+      }
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+
   console.log("\n✔ Finalizado");
 }

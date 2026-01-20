@@ -34,13 +34,14 @@ export const FORBIDDEN_SOURCES = [
   "swr",
 
   // HTTP / side effects
-  "axios",
+  // "axios",
   "ky",
   "cross-fetch",
 
   // Utils
-  "lodash",
+  // "lodash",
   "lodash-es",
+  "date-fns-tz",
   "date-fns",
   "ramda",
   "uuid",
@@ -81,14 +82,8 @@ export const FORBIDDEN_EXTENSIONS = [
   ".svg",
 ];
 
-export const FORBIDDEN_NAMED_EXPORTS = [
-  "Tooltip",
-  "Legend",
-  "ResponsiveContainer",
-  "Cell",
-  "CartesianGrid",
-  "XAxis",
-  "YAxis",
+export const FORBIDDEN_NAMED_EXPORTS: string[] = [
+
 ];
 
 export const heavyLibs = [
@@ -118,7 +113,6 @@ export const heavyLibs = [
   "moment",
   "moment-timezone",
   "luxon",
-  "date-fns-tz",
   "formik",
   "redux-form",
   "draft-js",
@@ -140,9 +134,9 @@ export const heavyLibs = [
   "react-map-gl",
   "@heroicons/react",
   "react-icons",
-  "lodash",
-  "lodash-es",
-  "rxjs",
+  // "lodash",
+  // "lodash-es",
+  // "rxjs",
   "pdfjs-dist",
   "react-pdf",
   "video.js",
@@ -150,3 +144,20 @@ export const heavyLibs = [
   "three",
   "@react-three/fiber",
 ];
+
+// libs que são utilitarias 
+
+export const UTILITY_LIBS = [
+  "moment",
+  "moment-timezone",
+  "lodash",
+  "lodash-es",
+  "rxjs",
+  "luxon",
+  "axios",
+  // "date-fns",
+  // "date-fns-tz"
+];
+
+// libs que precisão de tipagem
+export const LIBS_REQUIRING_ANY: string[] = [];

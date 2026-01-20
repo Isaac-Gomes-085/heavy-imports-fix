@@ -1,11 +1,9 @@
-import fs from "fs";
-import { parse } from "@babel/parser";
-import traverseModule from "@babel/traverse";
-import * as t from "@babel/types";
-import { heavyLibs } from "./rules/heavyLibs";
+import { Project, SyntaxKind, SourceFile, ImportDeclaration } from "ts-morph";
+import { heavyLibs, UTILITY_LIBS } from "./rules/heavyLibs";
 
 export type HeavyImport = {
   source: string;
+  isUtility: boolean;
   specifiers: {
     local: string;
     imported?: string;
@@ -18,64 +16,66 @@ export type AnalysisResult = {
   heavyImports: HeavyImport[];
 };
 
-const traverse = (traverseModule as any).default ?? traverseModule;
+// ts-morph gerencia o projeto e arquivos globalmente ou por função
+const project = new Project();
 
 function isHeavyLib(source: string) {
   return heavyLibs.some((lib) => {
     if (lib.endsWith("*")) {
       return source.startsWith(lib.replace("*", ""));
     }
-
     return source === lib || source.startsWith(`${lib}/`);
   });
 }
 
 export function analyzeFile(file: string): AnalysisResult {
-  const code = fs.readFileSync(file, "utf8");
-
-  const ast = parse(code, {
-    sourceType: "module",
-    plugins: ["typescript", "jsx"],
-  });
-
+  // Adiciona o arquivo ao projeto ts-morph para análise de tipos e AST
+  const sourceFile = project.addSourceFileAtPath(file);
   const heavyImports: HeavyImport[] = [];
 
-  traverse(ast, {
-    ImportDeclaration(path: any) {
-      const source = path.node.source.value;
+  // Usa os métodos de navegação do ts-morph (semelhante ao traverse)
+  const importDeclarations = sourceFile.getImportDeclarations();
 
-      // SÓ ANALISA SE ESTIVER NA heavyLibs
-      if (!isHeavyLib(source)) return;
+  for (const importDecl of importDeclarations) {
+    const source = importDecl.getModuleSpecifierValue();
 
-      const specifiers: HeavyImport["specifiers"] = [];
+    if (!isHeavyLib(source)) continue;
 
-      for (const spec of path.node.specifiers) {
-        if (t.isImportDefaultSpecifier(spec)) {
-          specifiers.push({
-            local: spec.local.name,
-            type: "default",
-          });
-        }
+    const isUtility = UTILITY_LIBS.some(
+      (lib) => source === lib || source.startsWith(`${lib}/`)
+    );
 
-        if (t.isImportSpecifier(spec)) {
-          specifiers.push({
-            local: spec.local.name,
-            imported: t.isIdentifier(spec.imported)
-              ? spec.imported.name
-              : spec.imported.value,
-            type: "named",
-          });
-        }
-      }
+    const specifiers: HeavyImport["specifiers"] = [];
 
-      if (specifiers.length) {
-        heavyImports.push({
-          source,
-          specifiers,
-        });
-      }
-    },
-  });
+    // Lógica para extrair default e named imports usando ts-morph API
+    const defaultImport = importDecl.getDefaultImport();
+    if (defaultImport) {
+      specifiers.push({
+        local: defaultImport.getText(),
+        type: "default",
+      });
+    }
+
+    const namedImports = importDecl.getNamedImports();
+    for (const namedImport of namedImports) {
+      specifiers.push({
+        local: namedImport.getAliasNode()?.getText() || namedImport.getName(),
+        imported: namedImport.getName(),
+        type: "named",
+      });
+    }
+
+    if (specifiers.length) {
+      heavyImports.push({
+        source,
+        isUtility,
+        specifiers,
+      });
+    }
+  }
+
+  // Remove o arquivo do projeto após a análise para evitar duplicação em chamadas futuras
+  project.removeSourceFile(sourceFile);
 
   return {
     file,
